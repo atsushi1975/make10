@@ -2,6 +2,10 @@ const gameBoard = document.getElementById('game-board');
 const scoreElement = document.getElementById('score');
 const nextBlockElement = document.getElementById('next-block');
 const messageElement = document.getElementById('message-container');
+const startButton = document.getElementById('start-button');
+const overlay = document.getElementById('game-overlay');
+const gameOverText = document.getElementById('game-over-text');
+const finalScoreElement = document.getElementById('final-score');
 
 const BOARD_WIDTH = 6;
 const BOARD_HEIGHT = 15;
@@ -284,7 +288,12 @@ function triggerGameOver() {
     isGameOver = true;
     clearInterval(gameInterval);
     stopDropSound(); // Also ensure drop sound is stopped
-    alert("Game Over! Final Score: " + score);
+    
+    // Show overlay with final score and retry button
+    finalScoreElement.textContent = score;
+    gameOverText.style.display = 'block';
+    startButton.textContent = 'Retry';
+    overlay.style.display = 'flex';
 }
 // --- End Sound Engine ---
 
@@ -436,14 +445,30 @@ async function gameLoop() {
 }
 
 
+function resetGame() {
+    board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
+    score = 0;
+    updateScore();
+    gameSpeed = 1000;
+    if (gameInterval) clearInterval(gameInterval);
+    isGameOver = false;
+    isHardDropping = false;
+    gameOverText.style.display = 'none';
+    drawBoard();
+}
+
 function startGame() {
+    resetGame();
+    overlay.style.display = 'none';
+
     fallingBlock = createBlock();
     nextBlock = createBlock();
     drawBoard();
     drawFallingBlock();
     drawNextBlock();
-    gameInterval = setInterval(gameLoop, 1000);
+    gameInterval = setInterval(gameLoop, gameSpeed);
 }
 
-startGame();
+startButton.addEventListener('click', startGame);
+
 

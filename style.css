@@ -14,6 +14,37 @@ body {
     gap: 20px;
 }
 
+.game-wrapper {
+    position: relative; /* For positioning the overlay */
+}
+
+#game-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+#start-button {
+    padding: 15px 30px;
+    font-size: 24px;
+    cursor: pointer;
+    border: 2px solid #333;
+    background-color: #fff;
+    border-radius: 8px;
+}
+
+#start-button:hover {
+    background-color: #f0f0f0;
+}
+
 #game-board {
     display: grid;
     grid-template-columns: repeat(6, 30px);
