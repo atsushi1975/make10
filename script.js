@@ -23,7 +23,9 @@ function drawBoard() {
             const cell = document.createElement('div');
             cell.classList.add('block');
             if (board[y][x]) {
-                cell.textContent = board[y][x];
+                const img = document.createElement('img');
+                img.src = `images/${board[y][x]}.svg`;
+                cell.appendChild(img);
             }
             gameBoard.appendChild(cell);
         }
@@ -52,7 +54,10 @@ function drawFallingBlock() {
     for (let i = 0; i < blocks.length; i++) {
         const cell = gameBoard.children[y * BOARD_WIDTH + (x + i)];
         if (cell) {
-            cell.textContent = blocks[i];
+            cell.innerHTML = ''; // Clear previous content
+            const img = document.createElement('img');
+            img.src = `images/${blocks[i]}.svg`;
+            cell.appendChild(img);
         }
     }
 }
@@ -70,7 +75,9 @@ function drawNextBlock() {
     for (let i = 0; i < nextBlock.blocks.length; i++) {
         const cell = document.createElement('div');
         cell.classList.add('block');
-        cell.textContent = nextBlock.blocks[i];
+        const img = document.createElement('img');
+        img.src = `images/${nextBlock.blocks[i]}.svg`;
+        cell.appendChild(img);
         nextBlockElement.appendChild(cell);
     }
 }
@@ -470,5 +477,44 @@ function startGame() {
 }
 
 startButton.addEventListener('click', startGame);
+
+const leftButton = document.getElementById('left-button');
+const rightButton = document.getElementById('right-button');
+const downButton = document.getElementById('down-button');
+const rotateButton = document.getElementById('rotate-button');
+
+if (leftButton) {
+    leftButton.addEventListener('click', () => {
+        if (moveBlock(-1, 0)) {
+            playMoveSound();
+        }
+        drawBoard();
+        drawFallingBlock();
+    });
+}
+
+if (rightButton) {
+    rightButton.addEventListener('click', () => {
+        if (moveBlock(1, 0)) {
+            playMoveSound();
+        }
+        drawBoard();
+        drawFallingBlock();
+    });
+}
+
+if (downButton) {
+    downButton.addEventListener('click', () => {
+        hardDrop();
+    });
+}
+
+if (rotateButton) {
+    rotateButton.addEventListener('click', () => {
+        [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
+        drawBoard();
+        drawFallingBlock();
+    });
+}
 
 
