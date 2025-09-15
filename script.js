@@ -1,4 +1,5 @@
-const gameBoard = document.getElementById('game-board');
+const gameBoardElement = document.getElementById('game-board');
+const gridContainer = document.getElementById('grid-container');
 const scoreElement = document.getElementById('score');
 const nextBlockElement = document.getElementById('next-block');
 const messageElement = document.getElementById('message-container');
@@ -6,18 +7,308 @@ const startButton = document.getElementById('start-button');
 const overlay = document.getElementById('game-overlay');
 const gameOverText = document.getElementById('game-over-text');
 const finalScoreElement = document.getElementById('final-score');
+const speedDisplay = document.getElementById('speed-display');
+const fallingBlockContainer = document.getElementById('falling-block-container');
 
 const BOARD_WIDTH = 6;
 const BOARD_HEIGHT = 15;
+const BLOCK_SIZE = 30; // The size of a block in pixels
 
-let board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
-let score = 0;
+// Game State Variables
+let board;
+let score;
 let fallingBlock;
+let fallingBlockPieces = [];
 let nextBlock;
-let gameInterval;
+let gameLoopTimeoutId;
+let animationFrameId;
+let isGameOver;
+let gameSessionId = 0;
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    setupInitialState();
+    addEventListeners();
+});
+
+function setupInitialState() {
+    board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
+    score = 0;
+    isGameOver = true;
+    updateScore();
+    drawBoard();
+    overlay.style.display = 'flex';
+    gameOverText.style.display = 'none';
+    startButton.textContent = 'Start Game';
+}
+
+function addEventListeners() {
+    startButton.addEventListener('click', startGame);
+    document.addEventListener('keydown', handleKeyPress);
+
+    // Touch controls
+    const leftButton = document.getElementById('left-button');
+    const rightButton = document.getElementById('right-button');
+    const downButton = document.getElementById('down-button');
+    const rotateButton = document.getElementById('rotate-button');
+
+    if (leftButton) leftButton.addEventListener('click', () => !isGameOver && moveBlock(-1));
+    if (rightButton) rightButton.addEventListener('click', () => !isGameOver && moveBlock(1));
+    if (downButton) downButton.addEventListener('click', () => !isGameOver && hardDrop());
+    if (rotateButton) {
+        rotateButton.addEventListener('click', () => {
+            if (isGameOver) return;
+            [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
+            updateFallingBlockVisuals();
+        });
+    }
+}
+
+// --- Game Flow Control ---
+function startGame() {
+    gameSessionId++;
+    resetGame();
+    overlay.style.display = 'none';
+    fallingBlockContainer.style.display = 'block';
+
+    for (let i = 0; i < 2; i++) {
+        const piece = document.createElement('div');
+        piece.classList.add('falling-block-piece');
+        const img = document.createElement('img');
+        piece.appendChild(img);
+        fallingBlockPieces.push(piece);
+        fallingBlockContainer.appendChild(piece);
+    }
+
+    fallingBlock = createBlock();
+    updateFallingBlockVisuals();
+    nextBlock = createBlock();
+    drawNextBlock();
+    
+    isGameOver = false;
+    updateSpeedDisplay(calculateSpeed());
+    gameLoop();
+    renderLoop();
+}
+
+function resetGame() {
+    board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
+    score = 0;
+    updateScore();
+
+    if (gameLoopTimeoutId) clearTimeout(gameLoopTimeoutId);
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+    isGameOver = false;
+    gameOverText.style.display = 'none';
+    fallingBlockContainer.innerHTML = '';
+    fallingBlockPieces = [];
+    drawBoard();
+}
+
+function triggerGameOver() {
+    isGameOver = true;
+    clearTimeout(gameLoopTimeoutId);
+    cancelAnimationFrame(animationFrameId);
+
+    finalScoreElement.textContent = score;
+    gameOverText.style.display = 'block';
+    startButton.textContent = 'Retry';
+    overlay.style.display = 'flex';
+    fallingBlockContainer.innerHTML = '';
+}
+
+// --- Game Loops ---
+async function gameLoop() {
+    if (isGameOver) return;
+    const currentSessionId = gameSessionId;
+
+    if (checkCollision()) {
+        settleBlock();
+        await postSettleActions(currentSessionId);
+    } else {
+        fallingBlock.y += 0.25;
+        if (currentSessionId === gameSessionId && !isGameOver) {
+            gameLoopTimeoutId = setTimeout(gameLoop, calculateSpeed());
+        }
+    }
+}
+
+function renderLoop() {
+    if (isGameOver) {
+        cancelAnimationFrame(animationFrameId);
+        return;
+    }
+
+    for (let i = 0; i < fallingBlockPieces.length; i++) {
+        const piece = fallingBlockPieces[i];
+        const xPos = (fallingBlock.x + i) * BLOCK_SIZE;
+        const yPos = fallingBlock.y * BLOCK_SIZE;
+        piece.style.transform = `translate(${xPos}px, ${yPos}px)`;
+    }
+    animationFrameId = requestAnimationFrame(renderLoop);
+}
+
+// --- Block & Board Logic ---
+function createBlock() {
+    let num1, num2;
+    do {
+        num1 = Math.floor(Math.random() * 5) + 1;
+        num2 = Math.floor(Math.random() * 5) + 5;
+    } while (num1 + num2 === 10);
+    const blocks = Math.random() < 0.5 ? [num1, num2] : [num2, num1];
+    return { x: 2, y: -1, blocks: blocks };
+}
+
+function moveBlock(dx) {
+    const { x, y, blocks } = fallingBlock;
+    const newX = x + dx;
+    const roundedY = Math.ceil(y);
+    if (newX < 0 || newX + blocks.length > BOARD_WIDTH) return;
+    for (let i = 0; i < blocks.length; i++) {
+        if (roundedY >= 0 && board[roundedY] && board[roundedY][newX + i] !== 0) {
+            return;
+        }
+    }
+    fallingBlock.x = newX;
+}
+
+async function hardDrop() {
+    if (isGameOver) return;
+    clearTimeout(gameLoopTimeoutId);
+    settleBlock();
+    await postSettleActions(gameSessionId);
+}
+
+function checkCollision() {
+    const { x, y, blocks } = fallingBlock;
+    const nextY = y + 0.25;
+    for (let i = 0; i < blocks.length; i++) {
+        const checkX = x + i;
+        const checkY = Math.ceil(nextY);
+        if (checkY >= BOARD_HEIGHT || (board[checkY] && board[checkY][checkX] !== 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function settleBlock() {
+    const { x, y, blocks } = fallingBlock;
+    const currentY = Math.round(y);
+    for (let i = 0; i < blocks.length; i++) {
+        let finalY = currentY;
+        while (finalY + 1 < BOARD_HEIGHT && board[finalY + 1][x + i] === 0) {
+            finalY++;
+        }
+        if (finalY >= 0) {
+            board[finalY][x + i] = blocks[i];
+        }
+    }
+    fallingBlockContainer.style.display = 'none';
+}
+
+async function postSettleActions(sessionId) {
+    if (sessionId !== gameSessionId) return;
+    drawBoard();
+    if (checkGameOver()) {
+        triggerGameOver();
+        return;
+    }
+    await handleClearing(sessionId);
+    if (sessionId !== gameSessionId) return;
+    if (!isGameOver) {
+        fallingBlock = nextBlock;
+        nextBlock = createBlock();
+        drawNextBlock();
+        updateFallingBlockVisuals();
+        fallingBlockContainer.style.display = 'block';
+        if (checkCollision()) {
+            settleBlock();
+            drawBoard();
+            triggerGameOver();
+            return;
+        }
+        gameLoop();
+    }
+}
+
+async function handleClearing(sessionId) {
+    let chain = 1;
+    let clearedSomething;
+    do {
+        if (sessionId !== gameSessionId) return;
+        clearedSomething = false;
+        const toClear = [];
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+            for (let x = 0; x < BOARD_WIDTH - 1; x++) {
+                if (board[y][x] && board[y][x+1] && board[y][x] + board[y][x+1] === 10) {
+                    toClear.push({y, x, type: 'h'});
+                }
+            }
+        }
+        for (let y = 0; y < BOARD_HEIGHT - 1; y++) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+                if (board[y][x] && board[y+1][x] && board[y][x] + board[y+1][x] === 10) {
+                    toClear.push({y: y + 1, x, type: 'v'});
+                }
+            }
+        }
+        if (toClear.length > 0) {
+            clearedSomething = true;
+            toClear.sort((a, b) => (a.y !== b.y ? b.y - a.y : a.x - b.x));
+            const pair = toClear[0];
+            if (pair.type === 'h') {
+                board[pair.y][pair.x] = 0;
+                board[pair.y][pair.x+1] = 0;
+            } else {
+                board[pair.y][pair.x] = 0;
+                board[pair.y-1][pair.x] = 0;
+            }
+            score += 10 * Math.pow(2, chain - 1);
+            if (chain > 1) showMessage(`${chain}連鎖！`);
+            chain++;
+            updateScore();
+            updateSpeedDisplay(calculateSpeed());
+            drawBoard();
+            await new Promise(r => setTimeout(r, 300));
+            if (sessionId !== gameSessionId) return;
+            applyGravity();
+            drawBoard();
+            await new Promise(r => setTimeout(r, 300));
+        }
+    } while (clearedSomething);
+}
+
+function applyGravity() {
+    for (let x = 0; x < BOARD_WIDTH; x++) {
+        let emptyRow = -1;
+        for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
+            if (board[y][x] === 0 && emptyRow === -1) emptyRow = y;
+            if (board[y][x] !== 0 && emptyRow !== -1) {
+                board[emptyRow][x] = board[y][x];
+                board[y][x] = 0;
+                emptyRow--;
+            }
+        }
+    }
+}
+
+function checkGameOver() {
+    for (let x = 0; x < BOARD_WIDTH; x++) {
+        if (board[0][x] !== 0) return true;
+    }
+    return false;
+}
+
+function calculateSpeed() {
+    // y = 250 * e^(-0.0005 * x) |上限50ms
+    const speed = 250 * Math.exp(-0.0017 * score);
+    return Math.max(50, speed);
+}
 
 function drawBoard() {
-    gameBoard.innerHTML = '';
+    gridContainer.innerHTML = '';
     for (let y = 0; y < BOARD_HEIGHT; y++) {
         for (let x = 0; x < BOARD_WIDTH; x++) {
             const cell = document.createElement('div');
@@ -27,47 +318,17 @@ function drawBoard() {
                 img.src = `images/${board[y][x]}.svg`;
                 cell.appendChild(img);
             }
-            gameBoard.appendChild(cell);
+            gridContainer.appendChild(cell);
         }
     }
 }
 
-function createBlock() {
-    let num1, num2;
-    do {
-        // Pick one number from [1, 2, 3, 4, 5]
-        num1 = Math.floor(Math.random() * 5) + 1;
-        // Pick one number from [5, 6, 7, 8, 9]
-        num2 = Math.floor(Math.random() * 5) + 5;
-    } while (num1 + num2 === 10);
-
-    // Randomize the left/right order of the two numbers
-    if (Math.random() < 0.5) {
-        return { x: 2, y: 0, blocks: [num2, num1] };
-    } else {
-        return { x: 2, y: 0, blocks: [num1, num2] };
+function updateFallingBlockVisuals() {
+    for (let i = 0; i < fallingBlock.blocks.length; i++) {
+        const piece = fallingBlockPieces[i];
+        const img = piece.querySelector('img');
+        img.src = `images/${fallingBlock.blocks[i]}.svg`;
     }
-}
-
-function drawFallingBlock() {
-    const { x, y, blocks } = fallingBlock;
-    for (let i = 0; i < blocks.length; i++) {
-        const cell = gameBoard.children[y * BOARD_WIDTH + (x + i)];
-        if (cell) {
-            cell.innerHTML = ''; // Clear previous content
-            const img = document.createElement('img');
-            img.src = `images/${blocks[i]}.svg`;
-            cell.appendChild(img);
-        }
-    }
-}
-
-function startGame() {
-    fallingBlock = createBlock();
-    nextBlock = createBlock();
-    drawBoard();
-    drawFallingBlock();
-    drawNextBlock();
 }
 
 function drawNextBlock() {
@@ -82,439 +343,28 @@ function drawNextBlock() {
     }
 }
 
-
-function moveBlock(dx, dy) {
-    const newX = fallingBlock.x + dx;
-
-    // Check for horizontal boundaries before moving
-    if (dx !== 0) {
-        if (newX < 0 || newX + fallingBlock.blocks.length > BOARD_WIDTH) {
-            return false; // Do not move if out of bounds
-        }
-        // Check for collision with existing blocks horizontally
-        for (let i = 0; i < fallingBlock.blocks.length; i++) {
-            if (fallingBlock.y >= 0 && board[fallingBlock.y][newX + i] !== 0) {
-                return false; // Collision with another block
-            }
-        }
-    }
-
-    fallingBlock.x += dx;
-    fallingBlock.y += dy;
-    return true; // Move was successful
-}
-
-function hardDrop() {
-    while (!checkCollision()) {
-        moveBlock(0, 1);
-    }
-    drawBoard();
-    drawFallingBlock();
-}
-
-function handleKeyPress(event) {
-    switch (event.key) {
-        case 'ArrowLeft':
-            moveBlock(-1, 0);
-            break;
-        case 'ArrowRight':
-            moveBlock(1, 0);
-            break;
-        case 'ArrowDown':
-            hardDrop();
-            break;
-        case ' ': // Space key
-            // ブロックの左右入れ替え
-            [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
-            break;
-    }
-    drawBoard();
-    drawFallingBlock();
-}
-
-document.addEventListener('keydown', handleKeyPress);
-
-function checkCollision() {
-    const { x, y, blocks } = fallingBlock;
-    for (let i = 0; i < blocks.length; i++) {
-        if (y + 1 >= BOARD_HEIGHT || board[y + 1][x + i] !== 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function mergeBlock() {
-    const { x, y, blocks } = fallingBlock;
-    for (let i = 0; i < blocks.length; i++) {
-        board[y][x + i] = blocks[i];
-    }
-}
-
-function clearBlocks() {
-    const horizontalPairs = [];
-    const verticalPairs = [];
-
-    // Find all horizontal pairs
-    for (let y = 0; y < BOARD_HEIGHT; y++) {
-        for (let x = 0; x < BOARD_WIDTH - 1; x++) {
-            if (board[y][x] !== 0 && board[y][x + 1] !== 0 && board[y][x] + board[y][x + 1] === 10) {
-                // Priority for a horizontal pair is its y, and the leftmost x
-                horizontalPairs.push({ y: y, x: x, type: 'h' });
-            }
-        }
-    }
-
-    // Find all vertical pairs
-    for (let y = 0; y < BOARD_HEIGHT - 1; y++) {
-        for (let x = 0; x < BOARD_WIDTH; x++) {
-            if (board[y][x] !== 0 && board[y + 1][x] !== 0 && board[y][x] + board[y + 1][x] === 10) {
-                // Priority for a vertical pair is the lower block's y, and its x
-                verticalPairs.push({ y: y + 1, x: x, type: 'v' });
-            }
-        }
-    }
-
-    const allPairs = [...horizontalPairs, ...verticalPairs];
-
-    if (allPairs.length === 0) {
-        return false;
-    }
-
-    // Sort to find the highest priority pair
-    // 1. Higher y (lower on the board) has priority
-    // 2. If y is the same, lower x (leftmost) has priority
-    allPairs.sort((a, b) => {
-        if (a.y !== b.y) {
-            return b.y - a.y; // Descending y
-        }
-        return a.x - b.x; // Ascending x
-    });
-
-    const topPriorityPair = allPairs[0];
-
-    // Clear only the highest priority pair
-    if (topPriorityPair.type === 'h') {
-        board[topPriorityPair.y][topPriorityPair.x] = 0;
-        board[topPriorityPair.y][topPriorityPair.x + 1] = 0;
-    } else { // 'v'
-        // The stored y is the lower block of the vertical pair
-        board[topPriorityPair.y][topPriorityPair.x] = 0;
-        board[topPriorityPair.y - 1][topPriorityPair.x] = 0;
-    }
-
-    return true;
-}
-
-function applyGravity() {
-    for (let x = 0; x < BOARD_WIDTH; x++) {
-        let emptyRow = -1;
-        for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
-            if (board[y][x] === 0 && emptyRow === -1) {
-                emptyRow = y;
-            }
-            if (board[y][x] !== 0 && emptyRow !== -1) {
-                board[emptyRow][x] = board[y][x];
-                board[y][x] = 0;
-                emptyRow--;
-            }
-        }
-    }
-}
-
-let gameSpeed = 1000;
-let isHardDropping = false;
-let isGameOver = false;
-
-// --- Sound Engine ---
-let audioCtx;
-// Create a single oscillator and gain for the move sound to be reused
-let moveOscillator, moveGain;
-
-// Sound for chains from Pixabay
-const chainSound = new Audio('https://cdn.pixabay.com/download/audio/2022/03/10/audio_c3b092d349.mp3');
-
-function initAudio() {
-    if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-}
-
-function playMoveSound() {
-    if (!audioCtx) return;
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(300, audioCtx.currentTime);
-    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-    oscillator.start(audioCtx.currentTime);
-    oscillator.stop(audioCtx.currentTime + 0.1);
-}
-
-let dropSoundOscillator;
-function playDropSound() {
-    if (!audioCtx || dropSoundOscillator) return;
-    dropSoundOscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    dropSoundOscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-
-    dropSoundOscillator.type = 'sawtooth';
-    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    dropSoundOscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // Start high
-    dropSoundOscillator.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.4); // End low
-    dropSoundOscillator.start(audioCtx.currentTime);
-
-    // Stop the sound after a duration in case it doesn't get stopped by collision
-    setTimeout(stopDropSound, 500);
-}
-
-function stopDropSound() {
-    if (dropSoundOscillator) {
-        dropSoundOscillator.stop(audioCtx.currentTime);
-        dropSoundOscillator = null;
-    }
-}
-
-function playClearSound() {
-    if (!audioCtx) return;
-    chainSound.currentTime = 0;
-    chainSound.volume = 0.5;
-    chainSound.play();
-}
-
-function triggerGameOver() {
-    if (isGameOver) return; // Ensure this only runs once
-    isGameOver = true;
-    clearInterval(gameInterval);
-    stopDropSound(); // Also ensure drop sound is stopped
-    
-    // Show overlay with final score and retry button
-    finalScoreElement.textContent = score;
-    gameOverText.style.display = 'block';
-    startButton.textContent = 'Retry';
-    overlay.style.display = 'flex';
-}
-// --- End Sound Engine ---
-
-function updateSpeed() {
-    if (score > 0 && score % 100 === 0) {
-        gameSpeed = Math.max(200, gameSpeed - 100);
-        clearInterval(gameInterval);
-        gameInterval = setInterval(gameLoop, gameSpeed);
-    }
-}
-
-function hardDrop() {
-    if (isHardDropping || isGameOver) return;
-    isHardDropping = true;
-    clearInterval(gameInterval);
-    playDropSound();
-
-    const dropInterval = setInterval(() => {
-        if (checkCollision()) {
-            clearInterval(dropInterval);
-            stopDropSound();
-            
-            settleBlock();
-            handleClearing().then(() => {
-                if (checkGameOver()) {
-                    triggerGameOver();
-                    return;
-                }
-                fallingBlock = nextBlock;
-                nextBlock = createBlock();
-                drawNextBlock();
-                drawFallingBlock(); // Immediately draw the new falling block
-                isHardDropping = false;
-                gameInterval = setInterval(gameLoop, gameSpeed);
-            });
-        } else {
-            moveBlock(0, 1);
-            drawBoard();
-            drawFallingBlock();
-        }
-    }, 20);
-}
-
-function handleKeyPress(event) {
-    if (isHardDropping || isGameOver) return;
-    initAudio();
-
-    switch (event.key) {
-        case 'ArrowLeft':
-            if (moveBlock(-1, 0)) {
-                playMoveSound();
-            }
-            break;
-        case 'ArrowRight':
-            if (moveBlock(1, 0)) {
-                playMoveSound();
-            }
-            break;
-        case 'ArrowDown':
-            hardDrop();
-            break;
-        case ' ': // Space key
-            [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
-            break;
-    }
-    drawBoard();
-    drawFallingBlock();
-}
-
-document.addEventListener('keydown', handleKeyPress);
-
-async function handleClearing() {
-    let chain = 1;
-    while (clearBlocks()) {
-        playClearSound(); // Play sound for every clear
-        if (chain >= 2) {
-            showMessage(`${chain}連鎖！`);
-        }
-        score += 10 * Math.pow(2, chain - 1);
-        updateScore();
-        updateSpeed();
-        drawBoard();
-        await new Promise(resolve => setTimeout(resolve, 300));
-        applyGravity();
-        drawBoard();
-        await new Promise(resolve => setTimeout(resolve, 300));
-        chain++;
-    }
-}
-
 function updateScore() {
     scoreElement.textContent = score;
 }
 
+function updateSpeedDisplay(speed) {
+    if(speedDisplay) speedDisplay.textContent = speed;
+}
+
 function showMessage(message) {
     messageElement.textContent = message;
-    // Hide the message after 1 second
-    setTimeout(() => {
-        messageElement.textContent = '';
-    }, 1000);
+    setTimeout(() => { messageElement.textContent = ''; }, 1000);
 }
 
-function checkGameOver() {
-    // Check if the top row has any blocks
-    for (let x = 0; x < BOARD_WIDTH; x++) {
-        if (board[0][x] !== 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function settleBlock() {
-    const { x, y, blocks } = fallingBlock;
-    for (let i = 0; i < blocks.length; i++) {
-        let finalY = y;
-        // Find the final resting position for each part of the block
-        while (finalY + 1 < BOARD_HEIGHT && board[finalY + 1][x + i] === 0) {
-            finalY++;
-        }
-        board[finalY][x + i] = blocks[i];
+function handleKeyPress(event) {
+    if (isGameOver) return;
+    switch (event.key) {
+        case 'ArrowLeft': moveBlock(-1); break;
+        case 'ArrowRight': moveBlock(1); break;
+        case 'ArrowDown': hardDrop(); break;
+        case ' ':
+            [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
+            updateFallingBlockVisuals();
+            break;
     }
 }
-
-async function gameLoop() {
-    if (isGameOver) {
-        clearInterval(gameInterval);
-        return;
-    }
-
-    if (checkCollision()) {
-        settleBlock();
-        await handleClearing();
-
-        if (checkGameOver()) {
-            triggerGameOver();
-            return;
-        }
-
-        fallingBlock = nextBlock;
-        nextBlock = createBlock();
-        drawNextBlock();
-        drawFallingBlock(); // Immediately draw the new falling block
-    } else {
-        moveBlock(0, 1);
-    }
-    drawBoard();
-    drawFallingBlock();
-}
-
-
-function resetGame() {
-    board = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(0));
-    score = 0;
-    updateScore();
-    gameSpeed = 1000;
-    if (gameInterval) clearInterval(gameInterval);
-    isGameOver = false;
-    isHardDropping = false;
-    gameOverText.style.display = 'none';
-    drawBoard();
-}
-
-function startGame() {
-    resetGame();
-    overlay.style.display = 'none';
-
-    fallingBlock = createBlock();
-    nextBlock = createBlock();
-    drawBoard();
-    drawFallingBlock();
-    drawNextBlock();
-    gameInterval = setInterval(gameLoop, gameSpeed);
-}
-
-startButton.addEventListener('click', startGame);
-
-const leftButton = document.getElementById('left-button');
-const rightButton = document.getElementById('right-button');
-const downButton = document.getElementById('down-button');
-const rotateButton = document.getElementById('rotate-button');
-
-if (leftButton) {
-    leftButton.addEventListener('click', () => {
-        if (moveBlock(-1, 0)) {
-            playMoveSound();
-        }
-        drawBoard();
-        drawFallingBlock();
-    });
-}
-
-if (rightButton) {
-    rightButton.addEventListener('click', () => {
-        if (moveBlock(1, 0)) {
-            playMoveSound();
-        }
-        drawBoard();
-        drawFallingBlock();
-    });
-}
-
-if (downButton) {
-    downButton.addEventListener('click', () => {
-        hardDrop();
-    });
-}
-
-if (rotateButton) {
-    rotateButton.addEventListener('click', () => {
-        [fallingBlock.blocks[0], fallingBlock.blocks[1]] = [fallingBlock.blocks[1], fallingBlock.blocks[0]];
-        drawBoard();
-        drawFallingBlock();
-    });
-}
-
-
