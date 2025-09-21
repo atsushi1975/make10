@@ -121,37 +121,64 @@ body {
     text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
 }
 
-#controls {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 10px;
-    width: 240px;
+h1,
+.next-label {
+    display: none;
 }
 
-#controls button {
+.game-layout {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#bottom-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.game-layout > button {
     padding: 15px;
-    font-size: 18px;
+    font-size: 24px;
     cursor: pointer;
     border: 2px solid #333;
     background-color: #fff;
     border-radius: 8px;
-    user-select: none; /* Prevent text selection on double tap */
+    user-select: none;
+    width: 60px;
+    height: calc(15 * var(--block-size));
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
-#controls button:active {
+#bottom-controls button {
+    padding: 15px;
+    font-size: 24px;
+    cursor: pointer;
+    border: 2px solid #333;
+    background-color: #fff;
+    border-radius: 8px;
+    user-select: none;
+    width: calc(6 * var(--block-size));
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.game-layout button:active,
+#bottom-controls button:active {
     background-color: #f0f0f0;
 }
 
-#controls #left-button { grid-column: 1 / 2; grid-row: 1 / 2; }
-#controls #rotate-button { grid-column: 2 / 3; grid-row: 1 / 2; }
-#controls #right-button { grid-column: 3 / 4; grid-row: 1 / 2; }
-#controls #down-button { grid-column: 1 / 4; grid-row: 2 / 3; }
 
 /* Responsive styles for mobile */
 @media (max-width: 768px) {
     :root {
-        --block-size: calc(min(8vw, 30px));
+        --block-size: 30px;
     }
 
     body {
@@ -165,7 +192,7 @@ body {
 
     .game-wrapper {
         align-items: center;
-        gap: 15px;
+        gap: 5px;
     }
 
     h1 {
@@ -174,9 +201,5 @@ body {
 
     .info h2 {
         font-size: 18px;
-    }
-
-    #controls {
-        margin-top: 10px;
     }
 }

@@ -180,7 +180,7 @@ function createBlock() {
     
     const blocks = Math.random() < 0.5 ? [num1, num2] : [num2, num1];
 
-    return { x: 2, y: -1, blocks, rotationState: 0 };
+    return { x: 2, y: 0, blocks, rotationState: 0 };
 }
 
 function rotateBlock() {
@@ -441,8 +441,8 @@ async function animateGravity(movements) {
 }
 
 function checkGameOver() {
-    for (let x = 0; x < BOARD_WIDTH; x++) {
-        if (board[0][x] !== 0) return true;
+    if (board[1][2] !== 0 || board[1][3] !== 0) {
+        return true;
     }
     return false;
 }
